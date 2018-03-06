@@ -1,0 +1,26 @@
+# Windows:
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Python:
+*.py[cod]
+*.so
+*.egg
+*.egg-info
+dist
+build
+__pycache__/
+*$py.class
+
+# My configurations:
+db.ini
+deploy_key_rsa
+.idea/
+
+# data
+/data/
+/res/
+
+# model file
+/mr_model1/
