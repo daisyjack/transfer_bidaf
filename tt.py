@@ -131,4 +131,6 @@ print(a)
 print((a>0.5).astype(int).tolist())
 a = a[numpy.newaxis, ...]
 soft = nn.Softmax()
-print(soft(a))
+# print(soft(a))
+print('/person'.split('/'))
+print(2*1e-2)

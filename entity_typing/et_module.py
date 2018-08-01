@@ -4,6 +4,8 @@ from configurations import fg_config
 import utils
 from torch.autograd import Variable
 from batch_getter import get_source_mask
+import numpy as np
+from highway import HW
 
 class EmbeddingLayer(nn.Module):
     def __init__(self, loaded_embedding, dropout_p=fg_config['dropout']):
@@ -145,8 +147,10 @@ class CtxAtt(nn.Module):
 class SigmoidLoss(nn.Module):
     def __init__(self, hidden_size, word_emb_size):
         super(SigmoidLoss, self).__init__()
-        self.weight = nn.Parameter(torch.zeros(hidden_size*2+word_emb_size*2, 1))
-        utils.init_weight(self.weight)
+        self.weight0 = nn.Parameter(torch.zeros(hidden_size*2+word_emb_size*2, hidden_size*2+word_emb_size*2))
+        self.weight1 = nn.Parameter(torch.zeros(hidden_size*2+word_emb_size*2, 1))
+        utils.init_weight(self.weight0)
+        utils.init_weight(self.weight1)
 
 
     def forward(self, ctx_rep, men_rep, labels, types_emb):
@@ -163,11 +167,180 @@ class SigmoidLoss(nn.Module):
         # logits = torch.bmm(batch_weight, rep).squeeze(2)  # (B, 1)
         # logits = torch.clamp(logits, max=16)
         # logits = torch.sigmoid(logits)  # (B, 1)
-        logits = torch.mm(torch.cat((ctx_rep, men_rep, types_emb), 1), self.weight)  # (B, 1)
+        logits = torch.tanh(torch.mm(torch.cat((ctx_rep, men_rep, types_emb), 1), self.weight0))  # (B, hidden_size*2+word_emb_size*2)
+        logits = torch.mm(logits, self.weight1)  # (B, 1)
         logits = torch.clamp(logits, max=16)
         logits = torch.sigmoid(logits)  # (B, 1)
         loss = torch.sum(-labels*torch.log(logits)-(1-labels)*torch.log(1-logits)) / labels.size(0)
         return loss, logits
+
+
+class WARPLoss(nn.Module):
+    def __init__(self, hidden_size, word_emb_size, dropout_p=fg_config['dropout']):
+        super(WARPLoss, self).__init__()
+        require_type_lst = None
+        if fg_config['data'] == 'onto':
+            require_type_lst = utils.get_ontoNotes_train_types()
+        elif fg_config['data'] == 'wiki':
+            require_type_lst = utils.get_wiki_types()
+        elif fg_config['data'] == 'bbn':
+            require_type_lst = utils.get_bbn_types()
+        num_labels = len(require_type_lst)
+        self.weight = nn.Parameter(torch.zeros(hidden_size * 2 + word_emb_size, word_emb_size))
+        utils.init_weight(self.weight)
+        self.rank_weights = [1.0 / 1]
+        for i in range(1, num_labels):
+            self.rank_weights.append(self.rank_weights[i - 1] + (1.0 / i + 1))
+        self.trans = nn.Linear(hidden_size * 2 + word_emb_size, word_emb_size)
+        utils.init_linear(self.trans)
+        self.activate = nn.ReLU()
+        self.dropout = nn.Dropout(dropout_p)
+
+
+    # def forward(self, ctx_rep, men_rep, target, types_emb):
+    #     """
+    #     :param ctx_rep: (89, B, hidden_size*2)
+    #     :param men_rep: (B, word_emb)
+    #     :param target: (B, 89)
+    #     :param types_emb:  (89, word_emb)
+    #     :return:
+    #     """
+    #     input = self.get_scores(ctx_rep, men_rep, types_emb)  # (B, 89)
+    #
+    #     batch_size = target.size()[0]
+    #     n_labels = target.size()[1]
+    #     max_num_trials = n_labels - 1
+    #     loss = 0.0
+    #
+    #     for i in range(batch_size):
+    #
+    #         for j in range(n_labels):
+    #             if target.data[i, j] == 1:
+    #                 bigger = 0
+    #                 neg_labels_idx = [idx for idx, v in enumerate(target.data[i, :]) if v == 0]
+    #                 for neg_id in neg_labels_idx:
+    #                     if (1 - input[i, j] + input[i, neg_id]).data[0] > 0:
+    #                         bigger += 1
+    #                 r_j = bigger-1
+    #
+    #
+    #
+    #                 # neg_labels_idx = np.array([idx for idx, v in enumerate(target.data[i, :]) if v == 0])
+    #                 # neg_idx = np.random.choice(neg_labels_idx, replace=False)
+    #                 # sample_score_margin = 1 - input[i, j] + input[i, neg_idx]
+    #                 # num_trials = 1
+    #                 #
+    #                 # while sample_score_margin.data[0] < 0 and num_trials < max_num_trials:
+    #                 #     neg_idx = np.random.choice(neg_labels_idx, replace=False)
+    #                 #     num_trials += 1
+    #                 #     sample_score_margin = 1 - input[i, j] + input[i, neg_idx]
+    #                 #
+    #                 # r_j = np.floor(max_num_trials / num_trials)
+    #                 weight = self.rank_weights[int(r_j)]
+    #
+    #                 for k in range(n_labels):
+    #                     if target.data[i, k] == 0:
+    #                         score_margin = 1 - input[i, j] + input[i, k]
+    #                         loss += (weight * torch.clamp(score_margin, min=0.0))
+    #
+    #     return loss / batch_size
+
+    # def get_scores(self, ctx_rep, men_rep, types_emb):
+    #     """
+    #     :param ctx_rep: (89, B, hidden_size*2)
+    #     :param men_rep: (B, word_emb)
+    #     :param types_emb:  (89, word_emb)
+    #     :return:
+    #     """
+    #     types_len = ctx_rep.size(0)
+    #     batch_size = men_rep.size(0)
+    #     word_emb = men_rep.size(1)
+    #     men_rep = men_rep.unsqueeze(0).expand(types_len, batch_size, word_emb)  # (89, B, word_emb)
+    #     ctx_men = torch.cat((ctx_rep, men_rep), 2)  # (89, B, hidden_size * 2+word_emb)
+    #     ctx_men = ctx_men.view(types_len * batch_size, -1)  # (89*B, hidden_size * 2+word_emb)
+    #     types_emb = types_emb.unsqueeze(1).expand(types_len, batch_size, word_emb).contiguous()  # (89, B, word_emb)
+    #     types_emb = types_emb.view(-1, word_emb, 1)  # (89*B, word_emb, 1)
+    #     scores = torch.mm(ctx_men, self.weight).unsqueeze(1)  # (89*B, 1, word_emb)
+    #     scores = torch.bmm(scores, types_emb).view(types_len, batch_size)  # (89, B)
+    #     scores = scores.transpose(0, 1)  # (B, 89)
+    #     return scores  # (B, 89)
+
+    def get_scores(self, ctx_rep, men_rep, types_emb):
+        """
+        :param ctx_rep: (89, B, hidden_size*2)
+        :param men_rep: (B, word_emb)
+        :param types_emb:  (89, word_emb)
+        :return:
+        """
+        types_len = ctx_rep.size(0)
+        batch_size = men_rep.size(0)
+        word_emb = men_rep.size(1)
+        men_rep = men_rep.unsqueeze(0).expand(types_len, batch_size, word_emb)  # (89, B, word_emb)
+        ctx_men = torch.cat((ctx_rep, men_rep), 2)  # (89, B, hidden_size * 2+word_emb)
+        ctx_men = ctx_men.view(types_len * batch_size, -1)  # (89*B, hidden_size * 2+word_emb)
+        types_emb = types_emb.unsqueeze(1).expand(types_len, batch_size, word_emb).contiguous()  # (89, B, word_emb)
+        types_emb = types_emb.view(-1, word_emb, 1)  # (89*B, word_emb, 1)
+        scores = self.dropout(self.activate(self.trans(ctx_men))).unsqueeze(1)  # (89*B, 1, word_emb)
+        scores = torch.bmm(scores, types_emb).view(types_len, batch_size)  # (89, B)
+        scores = scores.transpose(0, 1)  # (B, 89)
+        return scores  # (B, 89)
+
+
+    def forward(self, ctx_rep, men_rep, target, types_emb):
+        """
+        :param ctx_rep: (89, B, hidden_size*2)
+        :param men_rep: (B, word_emb)
+        :param target: (B, 89)
+        :param types_emb:  (89, word_emb)
+        :return:
+        """
+        input = self.get_scores(ctx_rep, men_rep, types_emb)  # (B, 89)
+
+        batch_size = target.size()[0]
+        n_labels = target.size()[1]
+        max_num_trials = n_labels - 1
+        loss = 0.0
+
+        weight = Variable(torch.zeros(batch_size, n_labels))  # (B, 89)
+        if fg_config['USE_CUDA']:
+            weight = weight.cuda(input.get_device())
+        pos_indices = Variable(torch.zeros(batch_size, n_labels).type(torch.LongTensor))  # (B, 89)
+        if fg_config['USE_CUDA']:
+            pos_indices = pos_indices.cuda(input.get_device())
+        neg_mask = Variable(torch.ones(batch_size, n_labels))  # (B, 89)
+        if fg_config['USE_CUDA']:
+            neg_mask = neg_mask.cuda(input.get_device())
+
+
+        for i in range(batch_size):
+            pos_num = 0
+            for j in range(n_labels):
+                if target.data[i, j] == 1:
+                    bigger = 0
+                    neg_labels_idx = [idx for idx, v in enumerate(target.data[i, :]) if v == 0]
+                    for neg_id in neg_labels_idx:
+                        if (1 - input[i, j] + input[i, neg_id]).data[0] > 0:
+                            bigger += 1
+                    r_j = bigger - 1
+                    weight[i, pos_num] = self.rank_weights[int(r_j)]
+                    pos_indices[i, pos_num] = j
+                    neg_mask[i, j] = 0
+                    pos_num += 1
+
+
+        pos_values = torch.gather(input, 1, pos_indices)  # (B, 89)
+        pos_values = pos_values.unsqueeze(2).expand(batch_size, n_labels, n_labels)  # (B, 89, 89)
+        values = input.unsqueeze(1).expand(batch_size, n_labels, n_labels)  # (B, 89, 89)
+        neg_mask = neg_mask.unsqueeze(1).expand(batch_size, n_labels, n_labels)  # (B, 89, 89)
+        weight = weight.unsqueeze(2).expand(batch_size, n_labels, n_labels)  # (B, 89, 89)
+        margin = (1 + values - pos_values) * neg_mask
+        margin = torch.clamp(margin, min=0.0)
+        weight_margin = margin * weight  # (B, 89, 89)
+        loss = torch.sum(weight_margin) / batch_size
+
+        return loss
+
+
 
 
 class NZSigmoidLoss(nn.Module):
@@ -198,9 +371,9 @@ class NZSigmoidLoss(nn.Module):
         else:
             logits = torch.mm(torch.cat((ctx_rep, men_rep), 1), self.weight.transpose(0, 1))
 
-        logits = torch.clamp(logits, max=16)
+        # logits = torch.clamp(logits, max=16)
         logits = torch.sigmoid(logits)  # (B, 89)
-        loss = torch.sum(-labels*torch.log(logits)-(1-labels)*torch.log(1-logits)) / labels.size(0)
+        loss = torch.sum(-labels*torch.log(logits+1e-6)-(1-labels)*torch.log(1-logits+1e-6)) / labels.size(0)
         return loss, logits
 
 
@@ -239,15 +412,21 @@ class NZCtxAtt(nn.Module):
         """
         l_ctx_lstm = l_ctx_lstm.transpose(0, 1).contiguous()  # (B, S, hidden_size*2)
         r_ctx_lstm = r_ctx_lstm.transpose(0, 1).contiguous()  # (B, S, hidden_size*2)
+        batch_size = l_ctx_lstm.size(0)
+        S = l_ctx_lstm.size(1)
+        hid2 = l_ctx_lstm.size(2)
+        types_len = types_emb.size(0)
+        word_emb = types_emb.size(1)
 
 
         if fg_config['att'] == 'label_att':
             ctx_rep = self.label_att(l_ctx_lstm, r_ctx_lstm, l_ctx_lens, r_ctx_lens, types_emb)  # (89, B, hidden_size*2)
         elif fg_config['att'] == 'no':
             ctx_rep = torch.cat((l_ctx_lstm[:, -1, :self.hidden_size], r_ctx_lstm[:, 0, self.hidden_size:]), 1)  # (B, hidden_size*2)
+            ctx_rep = ctx_rep.unsqueeze(0).expand(types_len, batch_size, hid2)
         elif fg_config['att'] == 'orig_att':
             ctx_rep = self.orig_att(l_ctx_lstm, r_ctx_lstm, l_ctx_lens, r_ctx_lens)  # (B, hidden_size*2)
-
+            ctx_rep = ctx_rep.unsqueeze(0).expand(types_len, batch_size, hid2)
 
 
         men_rep = torch.sum(mentions_emb, 1)  # (B, word_emb)
@@ -259,7 +438,7 @@ class NZCtxAtt(nn.Module):
         men_len_mask = men_len_mask.expand_as(men_rep)
         men_rep = men_rep / men_len_mask
 
-        # ctx_rep: (B, hidden_size*4), men_rep: (B, word_emb)
+        # ctx_rep: (B, hidden_size*2), men_rep: (B, word_emb)
         return ctx_rep, men_rep
 
     def label_att(self, l_ctx_lstm, r_ctx_lstm, l_ctx_lens, r_ctx_lens, types_emb):

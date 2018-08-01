@@ -3,7 +3,7 @@ import torch
 from configurations import fg_config, to_np
 from logger import Logger
 import time
-from entity_typing.et_module import EmbeddingLayer, CtxLSTM, CtxAtt, SigmoidLoss
+from entity_typing.et_module import EmbeddingLayer, CtxLSTM, CtxAtt, SigmoidLoss, WARPLoss
 from bidaf import LoadEmbedding
 from torch.autograd import Variable
 import numpy
@@ -13,7 +13,7 @@ from eval_et import evaluate_all
 from numpy import linalg as LA
 import sys
 import os
-from conll_data_trans import OntoNotesFGGetter
+from conll_data_trans import OntoNotesFGGetter, OntoNotesNZGetter
 import argparse
 from batch_getter import get_source_mask, get_target_mask
 from torch import nn
@@ -119,11 +119,14 @@ def main(my_arg):
     emb = LoadEmbedding('res/onto_embedding.txt')
     print('finish loading embedding')
     batch_getter = OntoNotesFGGetter('data/OntoNotes/train.json', utils.get_ontoNotes_train_types(), fg_config['batch_size'], True)
+    # batch_getter = OntoNotesNZGetter('data/OntoNotes/train.json', utils.get_ontoNotes_train_types(),
+    #                                  fg_config['batch_size'], True)
     print('finish loading train data')
     ctx_lstm = CtxLSTM(emb.get_emb_size())
     embedding_layer = EmbeddingLayer(emb)
     ctx_att = CtxAtt(fg_config['hidden_size'], emb.get_emb_size())
     sigmoid_loss = SigmoidLoss(fg_config['hidden_size'], emb.get_emb_size())
+    warp_loss = WARPLoss(89)
 
     if fg_config['USE_CUDA']:
         embedding_layer.cuda(fg_config['cuda_num'])

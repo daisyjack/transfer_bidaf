@@ -27,6 +27,7 @@ class LoadEmbedding(object):
                         self.voc_size = int(parts[0]) + 8
                         self.emb_size = int(parts[1])
                         self.embedding_tensor = torch.zeros(self.voc_size, self.emb_size)
+                        utils.init_weight(self.embedding_tensor)
                     else:
                         parts = line.split(' ')
                         for j, part in enumerate(parts[1:]):

@@ -159,10 +159,11 @@ def get_fg_config():
     config['OutTags'] = Vocab('res/ner_xx', unk_id=config['UNK_token'], pad_id=config['PAD_token'])
     config['Tags'] = {'<PADDING>': 0, '<START>': 1, 'B': 2, 'I': 3, 'O': 4, 'E': 5, 'S': 6}
     config['WordId'] = Vocab('res/voc.txt', unk_id=config['UNK_token'], pad_id=config['PAD_token'])
-    config['onto_word_id'] = Vocab('res/glove_6B_voc.txt', unk_id=config['UNK_token'], pad_id=config['PAD_token'])
+    config['onto_word_id'] = Vocab('res/glove_840B_voc.txt', unk_id=config['UNK_token'], pad_id=config['PAD_token'])
+    config['type_id'] = Vocab('res/onto/zero_type_voc.txt', unk_id=config['UNK_token'], pad_id=config['PAD_token'])
     config['filter_size'] = 5  # 3
     config['highway_num_layers'] = 2
-    config['save_freq'] = 30
+    config['save_freq'] = 50
     config['dropout'] = 0.2  # 0.25
     config['use_dropout'] = True
     # config['dropout'] = 0.9
@@ -199,6 +200,7 @@ def get_fg_config():
     config['ctx_window_size'] = 10
     config['lstm_layers'] = 1
     config['Da'] = 100
+    config['topk'] = 3
 
     return config
 

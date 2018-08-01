@@ -3,6 +3,8 @@
 import json
 import copy
 import codecs
+import pickle
+import time
 
 
 def get_type(file_name):
@@ -65,15 +67,16 @@ def get_voc_size():
     # emb = codecs.open('res/glove.840B.300d.txt', mode='rb', encoding='utf-8')
     # voc = codecs.open('res/glove_voc.txt', mode='wb', encoding='utf-8')
     size = 0
-    with codecs.open('res/glove.6B.300d.txt', mode='rb', encoding='utf-8') as emb:
-        with codecs.open('res/glove_6B_voc.txt', mode='wb', encoding='utf-8') as voc:
+    with codecs.open('res/bbn/zero_type_emb.txt', mode='rb', encoding='utf-8') as emb:
+        with codecs.open('res/bbn/zero_type_voc.txt', mode='wb', encoding='utf-8') as voc:
+            line = emb.readline()
 
             for line in emb:
                 line = line.strip()
                 if line:
                     num = size + 92
                     word = line.split(' ')[0]
-                    voc.write(word + '\t' + str(num) +'\n')
+                    voc.write(word + '\t' + str(size+3) +'\n')
                     size += 1
     # voc.close()
 
@@ -81,6 +84,25 @@ def get_voc_size():
 
     # emb.close()
     print(size)
+
+def save_embedding():
+    from bidaf import LoadEmbedding
+    emb = LoadEmbedding('res/glove.840B.300d.txt')
+    with open('res/glove.840B.300d.dat', 'wb') as emb_file:
+        pickle.dump(emb, emb_file)
+
+def load_embedding():
+    with open('res/glove.840B.300d.dat', 'rb') as emb_file:
+        emb = pickle.load(emb_file)
+    return emb
+
+def get_types_from_voc():
+    with open('res/bbn/types.txt', 'w') as f:
+        with open('res/bbn/zero_type_voc.txt', 'r') as voc:
+            for line in voc:
+                line = line.strip()
+                if line:
+                    f.write("'"+line.split('\t')[0]+"', ")
 
 
 
@@ -94,4 +116,6 @@ if __name__ == '__main__':
     # print(test_mention_type.difference(train_mention_type), len(test_mention_type.difference(train_mention_type)))
     # print(train_mention_type.intersection(test_mention_type), len(train_mention_type.intersection(test_mention_type)))
     # get_leaf('data/OntoNotes/train.json', 'data/OntoNotes/leaf_train.json')
-    get_voc_size()
+    get_types_from_voc()
+    # get_voc_size()
+

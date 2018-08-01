@@ -3,7 +3,7 @@ import torch
 from configurations import fg_config, to_np
 from logger import Logger
 import time
-from entity_typing.et_module import EmbeddingLayer, CtxLSTM, NZSigmoidLoss, NZCtxAtt
+from entity_typing.et_module import EmbeddingLayer, CtxLSTM, NZCtxAtt
 from bidaf import LoadEmbedding
 from torch.autograd import Variable
 import numpy
@@ -65,7 +65,7 @@ class BoundaryPerformance:
 
 
 
-def evaluate_one(step, embedding_layer, ctx_lstm, ctx_att, sigmoid_loss, this_batch):
+def evaluate_one(step, word_embedding_layer, type_embedding_layer, ctx_lstm, ctx_att, sigmoid_loss, this_batch):
     l_ctx = Variable(this_batch['l_ctx_tensor'], volatile=True)
     mentions = Variable(this_batch['mentions_tensor'], volatile=True)
     r_ctx = Variable(this_batch['r_ctx_tensor'], volatile=True)
@@ -81,10 +81,10 @@ def evaluate_one(step, embedding_layer, ctx_lstm, ctx_att, sigmoid_loss, this_ba
     r_ctx_lens = this_batch['r_ctx_lens']
     men_lens = this_batch['men_lens']
 
-    l_ctx_emb = embedding_layer(l_ctx)  # (B, S, word_emb)
-    mentions_emb = embedding_layer(mentions)  # (B, S, word_emb)
-    r_ctx_emb = embedding_layer(r_ctx)  # (B, S, word_emb)
-    types_emb = embedding_layer(types)  # (B, word_emb)
+    l_ctx_emb = word_embedding_layer(l_ctx)  # (B, S, word_emb)
+    mentions_emb = word_embedding_layer(mentions)  # (B, S, word_emb)
+    r_ctx_emb = word_embedding_layer(r_ctx)  # (B, S, word_emb)
+    types_emb = type_embedding_layer(types)  # (B, word_emb)
     l_ctx_lstm, r_ctx_lstm = ctx_lstm(l_ctx_emb, r_ctx_emb, l_ctx_lens, r_ctx_lens)
     ctx_rep, men_rep = ctx_att(l_ctx_lstm, r_ctx_lstm, mentions_emb, l_ctx_lens, r_ctx_lens, men_lens, types_emb)
     _, logits = sigmoid_loss(ctx_rep, men_rep, labels)
@@ -94,40 +94,51 @@ def evaluate_one(step, embedding_layer, ctx_lstm, ctx_att, sigmoid_loss, this_ba
     l_tmp = l_tmp.astype(int)
     return tmp, l_tmp
 
+def get_type_lst(data):
+    type_lst = None
+    if data == 'onto':
+        type_lst = utils.get_ontoNotes_train_types()
+    elif data == 'wiki':
+        type_lst = utils.get_wiki_types()
+    elif data == 'bbn':
+        type_lst = utils.get_bbn_types()
+    return type_lst
 
 
 
-
-def evaluate_all(my_arg, pr=True):
-    emb = LoadEmbedding('res/glove_6B_emb.txt')
+def evaluate_all(my_arg, word_embedding_layer, type_embedding_layer, ctx_lstm, ctx_att, sigmoid_loss, pr=True):
+    word_emb = LoadEmbedding('res/glove_840B_emb.txt')
+    type_emb = LoadEmbedding('res/{}/zero_type_emb.txt'.format(fg_config['data']))
     print('finish loading embedding')
     batch_size = 100
-    batch_getter = OntoNotesNZGetter('data/OntoNotes/test.json', utils.get_ontoNotes_train_types(),
+    batch_getter = OntoNotesNZGetter('data/{}/test.json'.format(fg_config['data']), get_type_lst(fg_config['data']),
                                      batch_size, True)
     print('finish loading train data')
-    ctx_lstm = CtxLSTM(emb.get_emb_size())
-    embedding_layer = EmbeddingLayer(emb)
-    ctx_att = NZCtxAtt(fg_config['hidden_size'], emb.get_emb_size())
-    sigmoid_loss = NZSigmoidLoss(fg_config['hidden_size'], emb.get_emb_size())
-
-    if fg_config['USE_CUDA']:
-        embedding_layer.cuda(fg_config['cuda_num'])
-        ctx_lstm.cuda(fg_config['cuda_num'])
-        ctx_att.cuda(fg_config['cuda_num'])
-        sigmoid_loss.cuda(fg_config['cuda_num'])
-    model_dir = 'nz_et_model' + str(my_arg)
-    embedding_layer.load_state_dict(torch.load(model_dir+'/embedding_layer.pkl'))
-    ctx_lstm.load_state_dict(torch.load(model_dir+'/ctx_lstm.pkl'))
-    ctx_att.load_state_dict(torch.load(model_dir+'/ctx_att.pkl'))
-    sigmoid_loss.load_state_dict(torch.load(model_dir+'/sigmoid_loss.pkl'))
-    embedding_layer.eval()
+    # ctx_lstm = CtxLSTM(word_emb.get_emb_size())
+    # embedding_layer = EmbeddingLayer(word_emb)
+    # ctx_att = NZCtxAtt(fg_config['hidden_size'], word_emb.get_emb_size())
+    # sigmoid_loss = NZSigmoidLoss(fg_config['hidden_size'], word_emb.get_emb_size())
+    #
+    # if fg_config['USE_CUDA']:
+    #     embedding_layer.cuda(fg_config['cuda_num'])
+    #     ctx_lstm.cuda(fg_config['cuda_num'])
+    #     ctx_att.cuda(fg_config['cuda_num'])
+    #     sigmoid_loss.cuda(fg_config['cuda_num'])
+    # model_dir = 'nz_et_model' + str(my_arg)
+    # embedding_layer.load_state_dict(torch.load(model_dir+'/embedding_layer.pkl'))
+    # ctx_lstm.load_state_dict(torch.load(model_dir+'/ctx_lstm.pkl'))
+    # ctx_att.load_state_dict(torch.load(model_dir+'/ctx_att.pkl'))
+    # sigmoid_loss.load_state_dict(torch.load(model_dir+'/sigmoid_loss.pkl'))
+    word_embedding_layer.eval()
+    type_embedding_layer.eval()
     ctx_lstm.eval()
     ctx_att.eval()
     sigmoid_loss.eval()
     ex_iterations = 0
     evaluator = BoundaryPerformance()
     for iteration, this_batch in enumerate(batch_getter):
-        pred, label = evaluate_one(ex_iterations + iteration, embedding_layer, ctx_lstm, ctx_att, sigmoid_loss, this_batch)
+        pred, label = evaluate_one(ex_iterations + iteration, word_embedding_layer, type_embedding_layer, ctx_lstm,
+                                   ctx_att, sigmoid_loss, this_batch)
 
         evaluator.evaluate(label, pred, this_batch['types_str'])
         if (iteration+1)*batch_size % 100 == 0:

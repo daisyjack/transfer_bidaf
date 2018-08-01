@@ -5,6 +5,7 @@ from torch import nn
 from numpy import linalg as LA
 import os
 import codecs
+import pickle
 
 
 def switch(vec1, vec2, mask):
@@ -107,16 +108,22 @@ def get_context_mat(src_tokens, config):
     return feaMat
 
 
-def get_fg_mat(src_tokens, config):
+def get_fg_mat(src_tokens, config, is_type=False):
     vocabs = config['Vocabs']
+    type_vocab = config['type_id']
 
     fea_len = 1
 
     feaMat = np.zeros((len(src_tokens), fea_len), dtype='int32')
-    for (lid, token) in enumerate(src_tokens):
-        for (i, voc) in enumerate(vocabs):
-            wid = voc.getID(token.lower())
-            feaMat[lid, i] = wid
+    if is_type:
+        for (lid, token) in enumerate(src_tokens):
+            wid = type_vocab.getID(token)
+            feaMat[lid, 0] = wid
+    else:
+        for (lid, token) in enumerate(src_tokens):
+            for (i, voc) in enumerate(vocabs):
+                wid = voc.getID(token.lower())
+                feaMat[lid, i] = wid
 
     return feaMat
 
@@ -143,6 +150,11 @@ def load_gaz_list(file):
             words.add(line.strip())
     return words
 
+def load_embedding(emb_file):
+    with open(emb_file, 'rb') as emb_file:
+        emb = pickle.load(emb_file)
+    return emb
+
 
 def get_ontoNotes_type_lst():
     test_lst = [
@@ -163,9 +175,14 @@ def get_ontoNotes_type_lst():
 
     return test_lst
 
+def check_depth(label, req_depth):
+    depth = len(label.split('/')) - 1
+    if depth == req_depth:
+        return True
+    else:
+        return False
 
-
-def get_ontoNotes_train_types():
+def get_ontoNotes_train_types(req_depth=None):
     lst = ['/location', '/other/body_part', '/organization/company', '/other/event/accident', '/other/event/holiday',
            '/person/military',
            '/location/structure', '/organization/company/news', '/location/structure/theater',
@@ -194,7 +211,92 @@ def get_ontoNotes_train_types():
            '/person/title', '/person/legal', '/location/geograpy', '/location/geography/mountain',
            '/organization/political_party',
            '/location/structure/sports_facility', '/organization/education', '/person/coach', '/other/art/film']
-    return lst
+    req_lst = []
+    for type in lst:
+        if check_depth(type, req_depth):
+            req_lst.append(type)
+    if req_depth is None:
+        req_lst = lst
+
+    return req_lst
+
+def get_wiki_types(req_depth=None):
+    lst = ['/product/mobile_phone', '/location/country', '/event/military_conflict', '/transit', '/broadcast_program',
+           '/person/monarch', '/play', '/game', '/broadcast_network', '/military', '/visual_art/color', '/law',
+           '/location/county', '/person/author', '/product/airplane', '/event/protest', '/metropolitan_transit/transit_line',
+           '/person/architect', '/livingthing/animal', '/newspaper', '/transportation/road', '/building/airport',
+           '/person/musician', '/product/spacecraft', '/location/city', '/event', '/government_agency', '/building/library',
+           '/product/ship', '/person/engineer', '/person/politician', '/art', '/building/sports_facility',
+           '/person/terrorist', '/body_part', '/organization/company', '/education/educational_degree',
+           '/person/religious_leader', '/people/ethnicity', '/person/soldier', '/train', '/art/film',
+           '/medicine/symptom', '/building/hotel', '/internet/website', '/organization/fraternity_sorority',
+           '/finance/currency', '/person/director', '/geography/glacier', '/product/computer',
+           '/organization/terrorist_organization', '/time', '/building/power_station', '/government/political_party',
+           '/computer/algorithm', '/location/cemetery', '/person/doctor', '/disease', '/event/attack', '/event/election',
+           '/location/bridge', '/education/department', '/location/body_of_water', '/organization/sports_team', '/god',
+           '/building/dam', '/broadcast/tv_channel', '/product/instrument', '/product', '/chemistry', '/organization',
+           '/person/actor', '/biology', '/finance/stock_exchange', '/title', '/news_agency', '/product/camera',
+           '/person/coach', '/event/natural_disaster', '/medicine/medical_treatment', '/event/sports_event',
+           '/building/theater', '/organization/sports_league', '/park', '/person/athlete', '/organization/airline',
+           '/food', '/event/terrorist_attack', '/rail/railway', '/living_thing', '/computer/programming_language',
+           '/product/car', '/award', '/building/hospital', '/organization/educational_institution',
+           '/government/government', '/software', '/music', '/building/restaurant', '/person/artist',
+           '/product/engine_device', '/medicine/drug', '/person', '/product/weapon', '/geography/island', '/building',
+           '/language', '/written_work', '/religion/religion', '/location/province', '/geography/mountain', '/location',
+           '/astral_body']
+    req_lst = []
+    for type in lst:
+        if check_depth(type, req_depth):
+            req_lst.append(type)
+    if req_depth is None:
+        req_lst = lst
+
+    return req_lst
+
+def get_bbn_types(req_depth=None):
+    lst = ['/ORGANIZATION/POLITICAL', '/SUBSTANCE', '/LOCATION/CONTINENT', '/FACILITY', '/ORGANIZATION/EDUCATIONAL',
+           '/ORGANIZATION/GOVERNMENT', '/EVENT', '/FACILITY/ATTRACTION', '/WORK_OF_ART/BOOK', '/GPE/COUNTRY',
+           '/SUBSTANCE/CHEMICAL', '/GPE/CITY', '/ORGANIZATION/HOTEL', '/PLANT', '/GPE', '/EVENT/WAR',
+           '/LOCATION/LAKE_SEA_OCEAN', '/LOCATION', '/GPE/STATE_PROVINCE', '/FACILITY/BUILDING', '/PRODUCT/WEAPON',
+           '/ORGANIZATION/HOSPITAL', '/PRODUCT', '/FACILITY/HIGHWAY_STREET', '/DISEASE', '/EVENT/HURRICANE', '/LAW',
+           '/LOCATION/RIVER', '/CONTACT_INFO', '/PERSON', '/ANIMAL', '/PRODUCT/VEHICLE', '/WORK_OF_ART',
+           '/CONTACT_INFO/url', '/ORGANIZATION/CORPORATION', '/LOCATION/REGION', '/WORK_OF_ART/SONG', '/SUBSTANCE/FOOD',
+           '/GAME', '/LANGUAGE', '/SUBSTANCE/DRUG', '/FACILITY/BRIDGE', '/FACILITY/AIRPORT', '/ORGANIZATION',
+           '/ORGANIZATION/RELIGIOUS', '/ORGANIZATION/MUSEUM', '/WORK_OF_ART/PLAY']
+    req_lst = []
+    for type in lst:
+        if check_depth(type, req_depth):
+            req_lst.append(type)
+    if req_depth is None:
+        req_lst = lst
+
+    return req_lst
+
+
+def wiki_short2full_patch():
+    lst = ['/medicine', '/religion', '/visual_art', '/rail', '/geography', '/computer', '/broadcast', '/people',
+           '/finance', '/government', '/livingthing', '/education', '/transportation', '/internet',
+           '/metropolitan_transit']
+    dct = {}
+    for type in lst:
+        dct[type.split('/')[1]] = type
+    return dct
+
+
+
+
+if __name__ == '__main__':
+    # lst = get_wiki_types(2)
+    # type2 = set([])
+    # type1 = get_wiki_types(1)
+    # for type in lst:
+    #     type2.add('/'+type.split('/')[1])
+    # print(len(type2), type2)
+    # print(len(type1), type1)
+    # dif = type2.difference(set(type1))
+    # print(len(dif), dif)
+    print(len(get_bbn_types()))
+
 
 
 

@@ -146,7 +146,7 @@ class TrainOntoNotesGetter:
 
 
 class OntoNotesNZGetter:
-    def __init__(self, file_name, require_type_lst, batch_size, shuffle=True):
+    def __init__(self, file_name, require_type_lst, batch_size, shuffle=True, req_depth=None):
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.cursor = 0
@@ -166,24 +166,26 @@ class OntoNotesNZGetter:
             # self.feaMats.append(feaMat)
 
             for mention in mentions:
-                start = mention['start']
-                end = mention['end']
-                men_tokens = src_tokens[start:end]
-                l_ctx_start = start-fg_config['ctx_window_size'] if start-fg_config['ctx_window_size'] >= 0 else 0
-                l_ctx_end = start
-                r_ctx_start = end+1
-                r_ctx_end = r_ctx_start+fg_config['ctx_window_size']
-                l_ctx_tokens = src_tokens[l_ctx_start:l_ctx_end]
-                r_ctx_tokens = src_tokens[r_ctx_start:r_ctx_end]
-                men_mat = utils.get_fg_mat(men_tokens, fg_config)
-                l_ctx_mat = utils.get_ctx_mat(l_ctx_tokens, fg_config)
-                r_ctx_mat = utils.get_ctx_mat(r_ctx_tokens, fg_config)
-                label = numpy.zeros((1, len(require_type_lst)), dtype='int32')
-                for i, require_type in enumerate(require_type_lst):
-                    if require_type in mention['labels']:
-                        label[0, i] = 1
-                type_mat = utils.get_fg_mat(require_type_lst, fg_config)
-                self.all_samples.append([l_ctx_mat, men_mat, r_ctx_mat, len(l_ctx_tokens), len(r_ctx_tokens), label, mention['labels'], type_mat])
+                is_req = self.check_depth(mention, req_depth)
+                if is_req and mention['start'] >= 0:
+                    start = mention['start']
+                    end = mention['end']
+                    men_tokens = src_tokens[start:end]
+                    l_ctx_start = start-fg_config['ctx_window_size'] if start-fg_config['ctx_window_size'] >= 0 else 0
+                    l_ctx_end = start
+                    r_ctx_start = end+1
+                    r_ctx_end = r_ctx_start+fg_config['ctx_window_size']
+                    l_ctx_tokens = src_tokens[l_ctx_start:l_ctx_end]
+                    r_ctx_tokens = src_tokens[r_ctx_start:r_ctx_end]
+                    men_mat = utils.get_fg_mat(men_tokens, fg_config)
+                    l_ctx_mat = utils.get_ctx_mat(l_ctx_tokens, fg_config)
+                    r_ctx_mat = utils.get_ctx_mat(r_ctx_tokens, fg_config)
+                    label = numpy.zeros((1, len(require_type_lst)), dtype='int32')
+                    for i, require_type in enumerate(require_type_lst):
+                        if require_type in mention['labels']:
+                            label[0, i] = 1
+                    type_mat = utils.get_fg_mat(require_type_lst, fg_config, True)
+                    self.all_samples.append([l_ctx_mat, men_mat, r_ctx_mat, len(l_ctx_tokens), len(r_ctx_tokens), label, mention['labels'], type_mat])
 
         train_file.close()
         # self.all_samples = all_samples
@@ -236,6 +238,20 @@ class OntoNotesNZGetter:
             random.shuffle(self.all_samples)
 
         self.cursor = 0
+
+    def check_depth(self, mention, req_depth):
+        if req_depth is None:
+            return True
+        depths = []
+        for label in mention['labels']:
+            depths.append(len(label.split('/')) - 1)
+        if len(depths) > 0 and max(depths) == req_depth:
+            return True
+        else:
+            return False
+
+
+
 
 
 
